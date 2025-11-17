@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chatbot — Devnex</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        background-color: #0f172a;
+        color: #f1f5f9;
+      }
+      .chat-bubble {
+        max-width: 80%;
+        padding: 10px 14px;
+        border-radius: 14px;
+        margin: 6px 0;
+        position: relative;
+      }
+      .user {
+        background-color: #2563eb;
+        align-self: flex-end;
+        color: #fff;
+      }
+      .bot {
+        background-color: #1e293b;
+        align-self: flex-start;
+        color: #f1f5f9;
+      }
+      #chatContainer {
+        height: 80vh;
+        overflow-y: auto;
+      }
+      .timestamp {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        margin-top: 2px;
+      }
+    </style>
+  </head>
+  <body class="flex h-screen">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-gray-900 border-r border-gray-700 flex flex-col">
+      <div
+        class="p-4 border-b border-gray-700 flex justify-between items-center"
+      >
+        <h2 class="text-lg font-bold text-blue-400">💬 Riwayat Chat</h2>
+        <div class="flex gap-2">
+          <button
+            id="newChatBtn"
+            class="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-sm"
+          >
+            ＋
+          </button>
+          <button
+            id="deleteChatBtn"
+            class="bg-red-600 hover:bg-red-700 px-2 py-1 rounded text-sm"
+          >
+            🗑
+          </button>
+        </div>
+      </div>
+      <ul id="chatList" class="flex-1 overflow-y-auto text-sm"></ul>
+    </aside>
+
+    <!-- Chat Area -->
+    <main class="flex-1 flex flex-col bg-gray-800 p-4">
+      <div class="flex justify-between mb-3">
+        <h1 class="text-xl font-bold text-blue-400">
+          🤖 Chatbot — <span class="text-indigo-300">Devnex</span>
+        </h1>
+        <div class="space-x-2">
+          <button
+            id="toggleVoiceUserBtn"
+            class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
+          >
+            🎤 OFF
+          </button>
+          <button
+            id="toggleVoiceBotBtn"
+            class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
+          >
+            🔇 Bot OFF
+          </button>
+        </div>
+      </div>
+
+      <div
+        id="chatContainer"
+        class="flex flex-col bg-gray-900 p-4 rounded-xl"
+      ></div>
+
+      <form id="chatForm" class="mt-3 flex gap-2">
+        <input
+          id="userInput"
+          class="flex-1 p-2 rounded-lg bg-gray-700 focus:outline-none"
+          placeholder="Ketik pesan atau gunakan 🎤..."
+        />
+        <button
+          class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-white"
+        >
+          Kirim
+        </button>
+      </form>
+    </main>
+
+    <script>
+      const chatContainer = document.getElementById("chatContainer");
+      const chatList = document.getElementById("chatList");
+      const userInput = document.getElementById("userInput");
+      const chatForm = document.getElementById("chatForm");
+      const newChatBtn = document.getElementById("newChatBtn");
+      const deleteChatBtn = document.getElementById("deleteChatBtn");
+      const toggleVoiceBotBtn = document.getElementById("toggleVoiceBotBtn");
+      const toggleVoiceUserBtn = document.getElementById("toggleVoiceUserBtn");
+
+      const API_URL = "http://localhost:3000/api/chat";
+      let chats = JSON.parse(localStorage.getItem("gemini_chats")) || [];
+      let currentChatIndex = chats.length > 0 ? 0 : -1;
+      let botVoiceEnabled = false;
+      let userVoiceEnabled = false;
+      let recognition;
+
+      // Voice Input
+      if ("webkitSpeechRecognition" in window) {
+        recognition = new webkitSpeechRecognition();
+        recognition.lang = "id-ID";
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.onresult = (e) => {
+          const transcript = e.results[0][0].transcript;
+          userInput.value = transcript;
+          sendMessage(transcript);
+        };
+      }
+
+      // Render chat bubbles
+      function renderChat() {
+        chatContainer.innerHTML = "";
+        if (currentChatIndex < 0) return;
+        chats[currentChatIndex].messages.forEach((msg) => {
+          const div = document.createElement("div");
+          div.className = `flex flex-col ${
+            msg.sender === "user" ? "items-end" : "items-start"
+          }`;
+          const bubble = document.createElement("div");
+          bubble.className = `chat-bubble ${msg.sender}`;
+          bubble.textContent = msg.text;
+          const time = document.createElement("div");
+          time.className = "timestamp";
+          time.textContent = new Date(msg.time).toLocaleTimeString("id-ID", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          div.appendChild(bubble);
+          div.appendChild(time);
+          chatContainer.appendChild(div);
+        });
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+
+      function renderChatList() {
+        chatList.innerHTML = "";
+        chats.forEach((chat, i) => {
+          const li = document.createElement("li");
+          li.textContent = chat.title || `Chat ${i + 1}`;
+          li.className = `px-3 py-2 cursor-pointer ${
+            i === currentChatIndex ? "bg-gray-700" : "hover:bg-gray-800"
+          }`;
+          li.onclick = () => {
+            currentChatIndex = i;
+            renderChatList();
+            renderChat();
+          };
+          chatList.appendChild(li);
+        });
+      }
+
+      function saveChats() {
+        localStorage.setItem("gemini_chats", JSON.stringify(chats));
+        renderChatList();
+      }
+
+      // Kirim pesan
+      async function sendMessage(message) {
+        if (currentChatIndex < 0) return;
+
+        chats[currentChatIndex].messages.push({
+          sender: "user",
+          text: message,
+          time: Date.now(),
+        });
+        renderChat();
+        saveChats();
+
+        // Deteksi pertanyaan "siapa kamu"
+        const lowerMsg = message.toLowerCase();
+        if (
+          lowerMsg.includes("siapa kamu") ||
+          lowerMsg.includes("kamu siapa") ||
+          lowerMsg.includes("nama kamu")
+        ) {
+          const reply =
+            "Saya adalah bot yang dibuat oleh Devnex, asisten AI yang siap membantu Anda. 🤖";
+          chats[currentChatIndex].messages.push({
+            sender: "bot",
+            text: reply,
+            time: Date.now(),
+          });
+          renderChat();
+          saveChats();
+          if (botVoiceEnabled) speak(reply);
+          return;
+        }
+
+        // Kirim ke server
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+
+        const data = await res.json();
+        const reply = data.reply || "⚠️ Tidak ada respons.";
+        chats[currentChatIndex].messages.push({
+          sender: "bot",
+          text: reply,
+          time: Date.now(),
+        });
+        renderChat();
+        saveChats();
+
+        if (botVoiceEnabled) speak(reply);
+      }
+
+      function speak(text) {
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = "id-ID";
+        speechSynthesis.speak(utter);
+      }
+
+      chatForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const msg = userInput.value.trim();
+        if (msg === "") return;
+        userInput.value = "";
+        sendMessage(msg);
+      });
+
+      // Sidebar actions
+      newChatBtn.addEventListener("click", () => {
+        const newChat = { title: `Chat ${chats.length + 1}`, messages: [] };
+        chats.push(newChat);
+        currentChatIndex = chats.length - 1;
+        saveChats();
+        renderChatList();
+        renderChat();
+      });
+
+      deleteChatBtn.addEventListener("click", () => {
+        if (confirm("Hapus semua riwayat chat?")) {
+          chats = [];
+          currentChatIndex = -1;
+          saveChats();
+          chatContainer.innerHTML = "";
+        }
+      });
+
+      toggleVoiceBotBtn.addEventListener("click", () => {
+        botVoiceEnabled = !botVoiceEnabled;
+        toggleVoiceBotBtn.textContent = botVoiceEnabled
+          ? "🔊 Bot ON"
+          : "🔇 Bot OFF";
+      });
+
+      toggleVoiceUserBtn.addEventListener("click", () => {
+        userVoiceEnabled = !userVoiceEnabled;
+        toggleVoiceUserBtn.textContent = userVoiceEnabled ? "🎤 ON" : "🎤 OFF";
+        if (userVoiceEnabled && recognition) recognition.start();
+        else if (recognition) recognition.stop();
+      });
+
+      // Init
+      if (chats.length === 0) {
+        chats.push({ title: "Chat 1", messages: [] });
+        currentChatIndex = 0;
+      }
+      renderChatList();
+      renderChat();
+    </script>
+  </body>
+</html>
